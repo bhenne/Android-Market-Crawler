@@ -39,7 +39,27 @@ else:
                  JOIN categories on (app_permissions.category=categories.id);"""
         cursor.execute(S)
         for row in cursor.fetchall():
-            print "\t".join(row)
+            print u"\t".join(row)
+        connection.close()
+        sys.exit()
+
+    if sys.argv[2] == "a":
+        connection = sqlite.connect(dbfilename)
+        cursor = connection.cursor()
+        S = """SELECT appname FROM app_names;"""
+        cursor.execute(S)
+        for row in cursor.fetchall():
+            print u"\t".join(row)
+        connection.close()
+        sys.exit()
+
+    if sys.argv[2] == "c":
+        connection = sqlite.connect(dbfilename)
+        cursor = connection.cursor()
+        S = """SELECT category FROM categories;"""
+        cursor.execute(S)
+        for row in cursor.fetchall():
+            print u"\t".join(row)
         connection.close()
         sys.exit()
 
@@ -178,7 +198,8 @@ class MarketCrawler(threading.Thread):
             permissions = soup.findAll('div','doc-permission-description')
             d = self.pushToDB(appName, cat, permissions, url)
             duplicates = duplicates | d
-        #print " ", len(duplicates), "dups"
+	if len(duplicates) > 0:
+        	print " ", len(duplicates), "dups"
         return duplicates
     
     """
