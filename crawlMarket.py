@@ -22,7 +22,7 @@ from BeautifulSoup import BeautifulSoup
 
 __author__ = "Sergio Bernales, Benjamin Henne"
 
-TERMAPP = False
+TERMAPP = False #: flag for quitting gracefully
 
 if len(sys.argv) < 2:
     sys.exit("Not Enough arguments!");
@@ -54,7 +54,7 @@ cursor = connection.cursor()
 cursor.execute('CREATE TABLE IF NOT EXISTS app_names (id INTEGER PRIMARY KEY, appname VARCHAR(256) UNIQUE, url VARCHAR(256))')
 cursor.execute('CREATE TABLE IF NOT EXISTS permissions (id INTEGER PRIMARY KEY, permission VARCHAR(256) UNIQUE)')
 cursor.execute('CREATE TABLE IF NOT EXISTS categories (id INTEGER PRIMARY KEY, category VARCHAR(256) UNIQUE)')
-cursor.execute('CREATE TABLE IF NOT EXISTS app_permissions (id INTEGER PRIMARY KEY, appname INTEGER, category INTEGER, permission INTEGER)')
+cursor.execute('CREATE TABLE IF NOT EXISTS app_permissions (id INTEGER PRIMARY KEY, appname INTEGER, category INTEGER, permission INTEGER, UNIQUE (appname, permission) ON CONFLICT FAIL)')
 #cursor.execute('CREATE TABLE IF NOT EXISTS urls_to_crawl (category VARCHAR(256), url VARCHAR(256))')
 
 connection.commit()
@@ -82,26 +82,45 @@ class MarketCrawler(threading.Thread):
     def crawlAppsForCategory(self, cat):
         pageIndex = 0
         curl = self.topfreeURL % (cat, pageIndex, self.pageIncrements)
-        currentURL = curl + str(pageIndex)
+        twice = False
 
         while True:
             try:
-                request = urllib2.Request(currentURL)
+                #print curl
+                request = urllib2.Request(curl)
                 request.add_header("User-Agent", "PermissionCrawler")
                 handle = urllib2.build_opener()
                 content = handle.open(request).read()
                 soup = BeautifulSoup(content)
 
-                print "Currently on page " + str(pageIndex) + " of the list of app for this Category"
+                print " crawling next %d entries starting with #%d" % (self.pageIncrements, pageIndex+1)
                 appURLS = self.extractAppUrls(soup)
-                self.extractPermissionsIntoDB(appURLS, cat)
+                duplicates = self.extractPermissionsIntoDB(appURLS, cat)
 
-                pageIndex+=self.pageIncrements
-                currentURL = curl + str(pageIndex)
+                if len(duplicates) == 0:
+                    pageIndex+=self.pageIncrements
+                # if we got first full repetition of page 1, go back one page and move on slowly until second full repetition
+                elif (len(duplicates) == self.pageIncrements) and (twice == False):
+                    print >> sys.stderr, "  ! %d duplicate entries on last iteration" % len(duplicates)
+                    pageIndex = max(pageIndex-2*self.pageIncrements, 0)
+                    pageIndex+=1
+                    twice = True
+                    duplicates = set()
+                elif twice == True:
+                    pageIndex+=1
+                # resorting of top n apps may produce 1 or 2 duplicates - ignore low number of duplicates
+                else:
+                    pageIndex+=self.pageIncrements
+
+                curl = self.topfreeURL % (cat, pageIndex, self.pageIncrements)
 
                 if TERMAPP == True:
                     connection.close()
                     sys.exit()
+
+                if (len(duplicates) == self.pageIncrements) and (twice == True):
+                    print >> sys.stderr, "INFO: stopped crawling categrory %s due to %s duplicates at last iteration twice" % (cat, len(duplicates))
+                    return False
 
             except urllib2.HTTPError, error:
                 if error.code == 404:
@@ -111,8 +130,8 @@ class MarketCrawler(threading.Thread):
                 else:
                     print >> sys.stderr, "ERROR: %s" % error
                 break
-            except Exception, e:
-                print >> sys.stderr, "iSERROR: %s" % e
+            #except Exception, e:
+            #    print >> sys.stderr, "iSERROR: %s" % e
     
 
     """
@@ -144,6 +163,7 @@ class MarketCrawler(threading.Thread):
     """
     def extractPermissionsIntoDB(self, appURLS, cat):
         #we can put this URL stuff into its own object /code repetition
+        duplicates = set()
         for url in appURLS:
             request = urllib2.Request(url)
             request.add_header("User-Agent", "PyCrawler")
@@ -153,13 +173,17 @@ class MarketCrawler(threading.Thread):
             
             appName = soup.find('h1','doc-banner-title').contents[0]
             permissions = soup.findAll('div','doc-permission-description')
-            self.pushToDB(appName, cat, permissions, url)
+            d = self.pushToDB(appName, cat, permissions, url)
+            duplicates = duplicates | d
+        #print " ", len(duplicates), "dups"
+        return duplicates
     
     """
     Pushes permissions of a certain app into the DB
     cursor.execute('CREATE TABLE IF NOT EXISTS app_permissions (id INTEGER, appname VARCHAR(256), category VARCHAR(256), permission VARCHAR(256), url VARCHAR(256))')
     """
     def pushToDB(self, appName, cat, permissions, url):
+        duplicates = set()
         for p in permissions:
             #print appName, cat, p.contents[0], url 
 
@@ -187,8 +211,12 @@ class MarketCrawler(threading.Thread):
                 cursor.execute("SELECT id FROM categories WHERE category=(?)", [cat])
                 catId = self.categories[cat] = cursor.fetchone()[0]
 
-            cursor.execute("INSERT INTO app_permissions VALUES ((?), (?), (?), (?))", (None, appId, catId, permissionId))
+            try:
+                cursor.execute("INSERT OR FAIL INTO app_permissions VALUES ((?), (?), (?), (?))", (None, appId, catId, permissionId))
+            except sqlite.IntegrityError:
+                duplicates.add(appName)
             connection.commit()
+        return duplicates 
 
 def SIGTERM_handler(signum, frame):
     global TERMAPP
