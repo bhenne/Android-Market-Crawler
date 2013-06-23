@@ -1,36 +1,60 @@
-#!/usr/bin/env python
+#!usr/bin/env python
 
 """
 Google Android Market Crawler
 For the sake of research
 1) database file name
 2 through n) all the categories we want to explore
+OR
+1) database file name .and. 2) "p" => prints db content
+
+stop crawling with `kill -s SIGTERM <pid>`
 """
 
 import sys
 import re
 import urllib2
 import urlparse
+import signal
 import sqlite3 as sqlite
 import threading
 from BeautifulSoup import BeautifulSoup
 
 __author__ = "Sergio Bernales, Benjamin Henne"
 
+TERMAPP = False
+
 if len(sys.argv) < 2:
     sys.exit("Not Enough arguments!");
 else:
     dbfilename = sys.argv[1]
-    argLen = len(sys.argv) - 1
 
+    if sys.argv[2] == "p":
+        connection = sqlite.connect(dbfilename)
+        cursor = connection.cursor()
+        S = """SELECT app_names.appname, categories.category, permissions.permission, url 
+                FROM app_permissions 
+                 JOIN app_names ON (app_permissions.appname=app_names.id) 
+                 JOIN permissions ON (app_permissions.permission=permissions.id) 
+                 JOIN categories on (app_permissions.category=categories.id);"""
+        cursor.execute(S)
+        for row in cursor.fetchall():
+            print "\t".join(row)
+        connection.close()
+        sys.exit()
+
+    argLen = len(sys.argv) - 1
     categories = [x.upper() for x in sys.argv[2::]]
 
 #DB Connection: create it and/or just open it
 connection = sqlite.connect(dbfilename)
 cursor = connection.cursor()
 
-#table that will contain all the permissions of an app of a certain category
-cursor.execute('CREATE TABLE IF NOT EXISTS app_permissions (id INTEGER PRIMARY KEY, appname VARCHAR(256), category VARCHAR(256), permission VARCHAR(256), url VARCHAR(256))')
+#tables that will contain all the permissions of an app of a certain category - table layout not perfect but fix solution
+cursor.execute('CREATE TABLE IF NOT EXISTS app_names (id INTEGER PRIMARY KEY, appname VARCHAR(256) UNIQUE, url VARCHAR(256))')
+cursor.execute('CREATE TABLE IF NOT EXISTS permissions (id INTEGER PRIMARY KEY, permission VARCHAR(256) UNIQUE)')
+cursor.execute('CREATE TABLE IF NOT EXISTS categories (id INTEGER PRIMARY KEY, category VARCHAR(256) UNIQUE)')
+cursor.execute('CREATE TABLE IF NOT EXISTS app_permissions (id INTEGER PRIMARY KEY, appname INTEGER, category INTEGER, permission INTEGER)')
 #cursor.execute('CREATE TABLE IF NOT EXISTS urls_to_crawl (category VARCHAR(256), url VARCHAR(256))')
 
 connection.commit()
@@ -40,6 +64,9 @@ class MarketCrawler(threading.Thread):
     topfreeURL = "https://play.google.com/store/apps/category/%s/collection/topselling_free?start=%d&num=%d"
     topfreeURL = "https://play.google.com/store/apps/category/%s/collection/topselling_paid?start=%d&num=%d"
     pageIncrements = 24;
+    apps = {}
+    permissions = {}
+    categories = {}
 
     """
     run()
@@ -71,6 +98,10 @@ class MarketCrawler(threading.Thread):
 
                 pageIndex+=self.pageIncrements
                 currentURL = curl + str(pageIndex)
+
+                if TERMAPP == True:
+                    connection.close()
+                    sys.exit()
 
             except urllib2.HTTPError, error:
                 if error.code == 404:
@@ -131,8 +162,40 @@ class MarketCrawler(threading.Thread):
     def pushToDB(self, appName, cat, permissions, url):
         for p in permissions:
             #print appName, cat, p.contents[0], url 
-            cursor.execute("INSERT INTO app_permissions VALUES ((?), (?), (?), (?), (?))", (None, appName, cat, p.contents[0], url ) )
+
+            if len(self.apps) > 1000:
+                apps = {}
+            if appName in self.apps:
+                appId = self.apps[appName]
+            else:
+                cursor.execute("INSERT OR IGNORE INTO app_names VALUES ((?), (?), (?))", (None, appName, url))
+                cursor.execute("SELECT id FROM app_names WHERE appname=(?)", [appName])
+                appId = self.apps[appName] = cursor.fetchone()[0]
+            permission = p.contents[0]
+
+            if permission in self.permissions:
+                permissionId = self.permissions[permission]
+            else:
+                cursor.execute("INSERT OR IGNORE INTO permissions VALUES ((?), (?))", (None, permission))
+                cursor.execute("SELECT id FROM permissions WHERE permission=(?)", [permission])
+                permissionId = self.permissions[permission] = cursor.fetchone()[0]
+
+            if cat in self.categories:
+                catId = self.categories[cat]
+            else:
+                cursor.execute("INSERT OR IGNORE INTO categories VALUES ((?), (?))", (None, cat))
+                cursor.execute("SELECT id FROM categories WHERE category=(?)", [cat])
+                catId = self.categories[cat] = cursor.fetchone()[0]
+
+            cursor.execute("INSERT INTO app_permissions VALUES ((?), (?), (?), (?))", (None, appId, catId, permissionId))
             connection.commit()
+
+def SIGTERM_handler(signum, frame):
+    global TERMAPP
+    print '\n--- Caught SIGTERM; Attempting to quit gracefully ---'
+    TERMAPP = True
+
+signal.signal(signal.SIGTERM, SIGTERM_handler)
 
 if __name__ == "__main__":
     #run the crawler thread

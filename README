@@ -8,5 +8,4 @@ Based on https://github.com/factoryEquipment/Android-Market-Crawler
 ToDo
  * better parallel processing
  * keep in mind crawler speed vs. getting blocked
- * improve db storage - save app names and permissions in extra tables - saving space
 
