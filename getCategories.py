@@ -24,4 +24,8 @@ for tag in tags:
             x = x.partition("?")[0]
         s.add(x)
 
-print " ".join(s)
+# this categories should be at the end of the list, add them manually
+s.remove("GAME")
+s.remove("APPLICATION")
+
+print " ".join(s), "GAME", "APPLICATION"
