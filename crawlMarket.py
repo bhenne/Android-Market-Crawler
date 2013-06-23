@@ -45,6 +45,8 @@ else:
 
     argLen = len(sys.argv) - 1
     categories = [x.upper() for x in sys.argv[2::]]
+    if len(categories) > 1:
+        print "Crawling categories:", " ".join(categories)
 
 #DB Connection: create it and/or just open it
 connection = sqlite.connect(dbfilename)
@@ -62,7 +64,7 @@ connection.commit()
 class MarketCrawler(threading.Thread):
     mainURL = "https://play.google.com"
     topfreeURL = "https://play.google.com/store/apps/category/%s/collection/topselling_free?start=%d&num=%d"
-    topfreeURL = "https://play.google.com/store/apps/category/%s/collection/topselling_paid?start=%d&num=%d"
+    toppaidURL = "https://play.google.com/store/apps/category/%s/collection/topselling_paid?start=%d&num=%d"
     pageIncrements = 24;
     apps = {}
     permissions = {}
@@ -76,12 +78,14 @@ class MarketCrawler(threading.Thread):
     """
     def run(self):
         for cat in categories:
-            print cat
-            self.crawlAppsForCategory(cat)
+            for url in (self.toppaidURL, self.topfreeURL):
+                print ""
+                print url % (cat, 0, self.pageIncrements)
+                self.crawlAppsForCategory(url, cat)
 
-    def crawlAppsForCategory(self, cat):
-        pageIndex = 480
-        curl = self.topfreeURL % (cat, pageIndex, self.pageIncrements)
+    def crawlAppsForCategory(self, url, cat):
+        pageIndex = 0
+        curl = url % (cat, pageIndex, self.pageIncrements)
         twice = False
 
         while True:
@@ -111,7 +115,7 @@ class MarketCrawler(threading.Thread):
                 else:
                     pageIndex+=self.pageIncrements
 
-                curl = self.topfreeURL % (cat, pageIndex, self.pageIncrements)
+                curl = url % (cat, pageIndex, self.pageIncrements)
 
                 if TERMAPP == True:
                     connection.close()
