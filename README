@@ -1,0 +1,12 @@
+A simple crawler for the Android Market to retrieve app permissions.
+
+
+Based on https://github.com/factoryEquipment/Android-Market-Crawler
+ A simple web crawler. Specifically for the Android Market to retrieve ever permissions for every app.
+
+
+ToDo
+ * better parallel processing
+ * keep in mind crawler speed vs. getting blocked
+ * improve db storage - save app names and permissions in extra tables - saving space
+

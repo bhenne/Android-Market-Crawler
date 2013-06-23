@@ -4,7 +4,7 @@
 Google Android Market Crawler
 For the sake of research
 1) database file name
-2 through n) all the types we want to explore
+2 through n) all the categories we want to explore
 """
 
 import sys
@@ -15,7 +15,7 @@ import sqlite3 as sqlite
 import threading
 from BeautifulSoup import BeautifulSoup
 
-__author__ = "Sergio Bernales"
+__author__ = "Sergio Bernales, Benjamin Henne"
 
 if len(sys.argv) < 2:
     sys.exit("Not Enough arguments!");
@@ -36,9 +36,9 @@ cursor.execute('CREATE TABLE IF NOT EXISTS app_permissions (id INTEGER PRIMARY K
 connection.commit()
 
 class MarketCrawler(threading.Thread):
-    mainURL = "https://market.android.com"
-    topfreeURL = "https://market.android.com/details?id=apps_topselling_free&num=24&cat="
-    toppaidURL = "https://market.android.com/details?id=apps_topselling_paid&num=24&cat="
+    mainURL = "https://play.google.com"
+    topfreeURL = "https://play.google.com/store/apps/category/%s/collection/topselling_free?start=%d&num=%d"
+    topfreeURL = "https://play.google.com/store/apps/category/%s/collection/topselling_paid?start=%d&num=%d"
     pageIncrements = 24;
 
     """
@@ -54,7 +54,7 @@ class MarketCrawler(threading.Thread):
 
     def crawlAppsForCategory(self, cat):
         pageIndex = 0
-        curl = self.topfreeURL + cat + "&start="
+        curl = self.topfreeURL % (cat, pageIndex, self.pageIncrements)
         currentURL = curl + str(pageIndex)
 
         while True:
@@ -65,11 +65,11 @@ class MarketCrawler(threading.Thread):
                 content = handle.open(request).read()
                 soup = BeautifulSoup(content)
 
-                print "Currently on page " + pageIndex + " of the list of app for this Category"
+                print "Currently on page " + str(pageIndex) + " of the list of app for this Category"
                 appURLS = self.extractAppUrls(soup)
                 self.extractPermissionsIntoDB(appURLS, cat)
 
-                pageIndex+=24
+                pageIndex+=self.pageIncrements
                 currentURL = curl + str(pageIndex)
 
             except urllib2.HTTPError, error:
@@ -85,7 +85,7 @@ class MarketCrawler(threading.Thread):
     
 
     """
-    From the page the lists a page of 24 apps of the particular category,
+    From the page the lists a page of pageIncrements apps of the particular category,
     extract the links to those apps
     """
     def extractAppUrls(self, soup):
@@ -99,7 +99,7 @@ class MarketCrawler(threading.Thread):
             if skip:
                 skip = False
                 continue
-            if href is not None and re.match('/details', href) and not re.search('apps_editors_choice', href):
+            if href is not None and re.search('/details', href):
                 #print href
                 appURLS.append(self.mainURL+href)
                 skip = True
