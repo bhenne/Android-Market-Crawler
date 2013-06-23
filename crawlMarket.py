@@ -80,7 +80,7 @@ class MarketCrawler(threading.Thread):
             self.crawlAppsForCategory(cat)
 
     def crawlAppsForCategory(self, cat):
-        pageIndex = 0
+        pageIndex = 480
         curl = self.topfreeURL % (cat, pageIndex, self.pageIncrements)
         twice = False
 
@@ -102,8 +102,7 @@ class MarketCrawler(threading.Thread):
                 # if we got first full repetition of page 1, go back one page and move on slowly until second full repetition
                 elif (len(duplicates) == self.pageIncrements) and (twice == False):
                     print >> sys.stderr, "  ! %d duplicate entries on last iteration" % len(duplicates)
-                    pageIndex = max(pageIndex-2*self.pageIncrements, 0)
-                    pageIndex+=1
+                    pageIndex = max(pageIndex-self.pageIncrements, 0)
                     twice = True
                     duplicates = set()
                 elif twice == True:
