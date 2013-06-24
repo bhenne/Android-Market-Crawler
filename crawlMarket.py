@@ -6,7 +6,7 @@ For the sake of research
 1) database file name
 2 through n) all the categories we want to explore
 OR
-1) database file name .and. 2) "p" => prints db content
+1) database file name .and. 2) "p", "pa", "a", "aa", "c" => prints db content
 
 stop crawling with `kill -s SIGTERM <pid>`
 """
@@ -29,17 +29,23 @@ if len(sys.argv) < 2:
 else:
     dbfilename = sys.argv[1]
 
-    if sys.argv[2] == "p":
+    if (sys.argv[2] == "p") or (sys.argv[2] == "P"):
         connection = sqlite.connect(dbfilename)
         cursor = connection.cursor()
-        S = """SELECT app_names.appname, categories.category, permissions.permission, url 
+        S = """SELECT apps.appname, categories.category, apps.appgroup, permissions.permission, url 
                 FROM app_permissions 
-                 JOIN app_names ON (app_permissions.appname=app_names.id) 
+                 JOIN apps ON (app_permissions.appname=apps.id) 
                  JOIN permissions ON (app_permissions.permission=permissions.id) 
-                 JOIN categories on (app_permissions.category=categories.id);"""
+                 JOIN categories on (apps.category=categories.id);"""
         cursor.execute(S)
-        for row in cursor.fetchall():
-            print u"\t".join(row)
+	appgroups = { 0: "topFree", 1: "topPaid"}
+	if (sys.argv[2] == "p"):
+            for row in cursor.fetchall():
+                print u"\t".join([row[0], row[1], appgroups[row[2]], row[3]])#, row[4]])
+	else:
+            for row in cursor.fetchall():
+                u = u"\t".join([row[0], row[1], appgroups[row[2]], row[3]])#, row[4]])
+		print u.encode("ascii", "replace")
         connection.close()
         sys.exit()
 
@@ -50,6 +56,16 @@ else:
         cursor.execute(S)
         for row in cursor.fetchall():
             print u"\t".join(row)
+        connection.close()
+        sys.exit()
+
+    if sys.argv[2] == "aa":
+        connection = sqlite.connect(dbfilename)
+        cursor = connection.cursor()
+        S = """SELECT count(appname) FROM app_names;"""
+        cursor.execute(S)
+        for row in cursor.fetchall():
+            print str(row[0])
         connection.close()
         sys.exit()
 
@@ -73,10 +89,10 @@ connection = sqlite.connect(dbfilename)
 cursor = connection.cursor()
 
 #tables that will contain all the permissions of an app of a certain category - table layout not perfect but fix solution
-cursor.execute('CREATE TABLE IF NOT EXISTS app_names (id INTEGER PRIMARY KEY, appname VARCHAR(256) UNIQUE, url VARCHAR(256))')
+cursor.execute('CREATE TABLE IF NOT EXISTS apps (id INTEGER PRIMARY KEY, appname VARCHAR(256) UNIQUE, category INTEGER, appgroup INTEGER, url VARCHAR(256))')
 cursor.execute('CREATE TABLE IF NOT EXISTS permissions (id INTEGER PRIMARY KEY, permission VARCHAR(256) UNIQUE)')
 cursor.execute('CREATE TABLE IF NOT EXISTS categories (id INTEGER PRIMARY KEY, category VARCHAR(256) UNIQUE)')
-cursor.execute('CREATE TABLE IF NOT EXISTS app_permissions (id INTEGER PRIMARY KEY, appname INTEGER, category INTEGER, permission INTEGER, UNIQUE (appname, permission) ON CONFLICT FAIL)')
+cursor.execute('CREATE TABLE IF NOT EXISTS app_permissions (id INTEGER PRIMARY KEY, appname INTEGER, permission INTEGER, UNIQUE (appname, permission) ON CONFLICT FAIL)')
 #cursor.execute('CREATE TABLE IF NOT EXISTS urls_to_crawl (category VARCHAR(256), url VARCHAR(256))')
 
 connection.commit()
@@ -98,12 +114,12 @@ class MarketCrawler(threading.Thread):
     """
     def run(self):
         for cat in categories:
-            for url in (self.toppaidURL, self.topfreeURL):
+            for url, cat2 in ((self.toppaidURL, 1), (self.topfreeURL, 0)):
                 print ""
                 print url % (cat, 0, self.pageIncrements)
-                self.crawlAppsForCategory(url, cat)
+                self.crawlAppsForCategory(url, cat, cat2)
 
-    def crawlAppsForCategory(self, url, cat):
+    def crawlAppsForCategory(self, url, cat, cat2):
         pageIndex = 0
         curl = url % (cat, pageIndex, self.pageIncrements)
         twice = False
@@ -119,7 +135,7 @@ class MarketCrawler(threading.Thread):
 
                 print " crawling next %d entries starting with #%d" % (self.pageIncrements, pageIndex+1)
                 appURLS = self.extractAppUrls(soup)
-                duplicates = self.extractPermissionsIntoDB(appURLS, cat)
+                duplicates = self.extractPermissionsIntoDB(appURLS, cat, cat2)
 
                 if len(duplicates) == 0:
                     pageIndex+=self.pageIncrements
@@ -184,7 +200,7 @@ class MarketCrawler(threading.Thread):
     Fetch all the URLS in appURLS and extract the permissions.
     Put these permission into the DB
     """
-    def extractPermissionsIntoDB(self, appURLS, cat):
+    def extractPermissionsIntoDB(self, appURLS, cat, cat2):
         #we can put this URL stuff into its own object /code repetition
         duplicates = set()
         for url in appURLS:
@@ -196,7 +212,7 @@ class MarketCrawler(threading.Thread):
             
             appName = soup.find('h1','doc-banner-title').contents[0]
             permissions = soup.findAll('div','doc-permission-description')
-            d = self.pushToDB(appName, cat, permissions, url)
+            d = self.pushToDB(appName, cat, cat2, permissions, url)
             duplicates = duplicates | d
 	if len(duplicates) > 0:
         	print " ", len(duplicates), "dups"
@@ -206,18 +222,25 @@ class MarketCrawler(threading.Thread):
     Pushes permissions of a certain app into the DB
     cursor.execute('CREATE TABLE IF NOT EXISTS app_permissions (id INTEGER, appname VARCHAR(256), category VARCHAR(256), permission VARCHAR(256), url VARCHAR(256))')
     """
-    def pushToDB(self, appName, cat, permissions, url):
+    def pushToDB(self, appName, cat, cat2, permissions, url):
         duplicates = set()
         for p in permissions:
-            #print appName, cat, p.contents[0], url 
+            #print appName, cat, p.contents[0], url
+
+            if cat in self.categories:
+                catId = self.categories[cat]
+            else:
+                cursor.execute("INSERT OR IGNORE INTO categories VALUES ((?), (?))", (None, cat))
+                cursor.execute("SELECT id FROM categories WHERE category=(?)", [cat])
+                catId = self.categories[cat] = cursor.fetchone()[0]
 
             if len(self.apps) > 1000:
                 apps = {}
             if appName in self.apps:
                 appId = self.apps[appName]
             else:
-                cursor.execute("INSERT OR IGNORE INTO app_names VALUES ((?), (?), (?))", (None, appName, url))
-                cursor.execute("SELECT id FROM app_names WHERE appname=(?)", [appName])
+                cursor.execute("INSERT OR IGNORE INTO apps VALUES ((?), (?), (?), (?), (?))", (None, appName, catId, cat2, url))
+                cursor.execute("SELECT id FROM apps WHERE appname=(?)", [appName])
                 appId = self.apps[appName] = cursor.fetchone()[0]
             permission = p.contents[0]
 
@@ -228,15 +251,8 @@ class MarketCrawler(threading.Thread):
                 cursor.execute("SELECT id FROM permissions WHERE permission=(?)", [permission])
                 permissionId = self.permissions[permission] = cursor.fetchone()[0]
 
-            if cat in self.categories:
-                catId = self.categories[cat]
-            else:
-                cursor.execute("INSERT OR IGNORE INTO categories VALUES ((?), (?))", (None, cat))
-                cursor.execute("SELECT id FROM categories WHERE category=(?)", [cat])
-                catId = self.categories[cat] = cursor.fetchone()[0]
-
             try:
-                cursor.execute("INSERT OR FAIL INTO app_permissions VALUES ((?), (?), (?), (?))", (None, appId, catId, permissionId))
+                cursor.execute("INSERT OR FAIL INTO app_permissions VALUES ((?), (?), (?))", (None, appId, permissionId))
             except sqlite.IntegrityError:
                 duplicates.add(appName)
             connection.commit()
