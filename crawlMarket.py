@@ -23,6 +23,7 @@ from BeautifulSoup import BeautifulSoup
 __author__ = "Sergio Bernales, Benjamin Henne"
 
 TERMAPP = False #: flag for quitting gracefully
+myThreshold = 15 #: another break on n duplicates threshold as a quick fix
 
 if len(sys.argv) < 2:
     sys.exit("Not Enough arguments!");
@@ -52,7 +53,7 @@ else:
     if sys.argv[2] == "a":
         connection = sqlite.connect(dbfilename)
         cursor = connection.cursor()
-        S = """SELECT appname FROM app_names;"""
+        S = """SELECT appname FROM apps;"""
         cursor.execute(S)
         for row in cursor.fetchall():
             print u"\t".join(row)
@@ -62,7 +63,7 @@ else:
     if sys.argv[2] == "aa":
         connection = sqlite.connect(dbfilename)
         cursor = connection.cursor()
-        S = """SELECT count(appname) FROM app_names;"""
+        S = """SELECT count(appname) FROM apps;"""
         cursor.execute(S)
         for row in cursor.fetchall():
             print str(row[0])
@@ -140,7 +141,7 @@ class MarketCrawler(threading.Thread):
                 if len(duplicates) == 0:
                     pageIndex+=self.pageIncrements
                 # if we got first full repetition of page 1, go back one page and move on slowly until second full repetition
-                elif (len(duplicates) == self.pageIncrements) and (twice == False):
+                elif ((len(duplicates) == self.pageIncrements) or (len(duplicates) >= myThreshold)) and (twice == False):
                     print >> sys.stderr, "  ! %d duplicate entries on last iteration" % len(duplicates)
                     pageIndex = max(pageIndex-self.pageIncrements, 0)
                     twice = True
@@ -157,7 +158,7 @@ class MarketCrawler(threading.Thread):
                     connection.close()
                     sys.exit()
 
-                if (len(duplicates) == self.pageIncrements) and (twice == True):
+                if ((len(duplicates) == self.pageIncrements) or (len(duplicates) >= myThreshold)) and (twice == True):
                     print >> sys.stderr, "INFO: stopped crawling categrory %s due to %s duplicates at last iteration twice" % (cat, len(duplicates))
                     return False
 
