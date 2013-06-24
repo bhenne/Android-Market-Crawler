@@ -154,6 +154,8 @@ class MarketCrawler(threading.Thread):
 
                 curl = url % (cat, pageIndex, self.pageIncrements)
 
+                soup.decompose()
+
                 if TERMAPP == True:
                     connection.close()
                     sys.exit()
@@ -214,6 +216,7 @@ class MarketCrawler(threading.Thread):
             appName = soup.find('h1','doc-banner-title').contents[0]
             permissions = soup.findAll('div','doc-permission-description')
             d = self.pushToDB(appName, cat, cat2, permissions, url)
+            soup.decompose() 
             duplicates = duplicates | d
 	if len(duplicates) > 0:
         	print " ", len(duplicates), "dups"
